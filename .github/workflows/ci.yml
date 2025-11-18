@@ -1,69 +1,100 @@
-name: Build Firefox (Windows)
+name: Build r3dfox (Windows)
 
 on:
-  push:
-  pull_request:
+  push        # every commit, all branches
+  pull_request
+  workflow_dispatch
 
 jobs:
-  build:
+  bootstrap:
     runs-on: windows-latest
-    strategy:
-      matrix:
-        arch: [x86, x64]   # Build both 32-bit and 64-bit
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      # Install Visual Studio Build Tools (MSVC)
-      - name: Install Visual Studio Build Tools
-        run: |
-          choco install visualstudio2022buildtools --yes --install-arguments "--add Microsoft.VisualStudio.Workload.VCTools"
+      - name: Install Git
+        run: choco install git --yes
 
-      # Install MozillaBuild (provides Python, Mercurial, GNU make, etc.)
       - name: Install MozillaBuild
-        run: |
-          choco install mozillabuild --yes
+        run: choco install mozillabuild --yes
 
-      # Install additional dependencies
-      - name: Install dependencies
-        run: |
-          choco install nasm yasm git python3 --yes
+      - name: Install Rustup
+        run: choco install rustup.install --yes
 
-      # Configure environment for the selected architecture
-      - name: Set environment
-        run: |
-          echo "MOZILLABUILD=C:\\mozilla-build" >> $env:GITHUB_ENV
-          if ("${{ matrix.arch }}" -eq "x86") {
-            echo "VSCMD_ARG_TGT_ARCH=x86" >> $env:GITHUB_ENV
-          } else {
-            echo "VSCMD_ARG_TGT_ARCH=x64" >> $env:GITHUB_ENV
-          }
+      - name: Install 7-Zip
+        run: choco install 7zip --yes
 
-      # Bootstrap Firefox build system
-      - name: Bootstrap Firefox build
+      - name: Download and Extract eRust
+        shell: powershell
+        run: |
+          $url = "https://github.com/Eclipse-Community/eRust/releases/download/e1.85.1/eRust-1.85.1.7z"
+          $out = "$env:USERPROFILE\\Downloads\\eRust.7z"
+          Invoke-WebRequest -Uri $url -OutFile $out
+          & "C:\\Program Files\\7-Zip\\7z.exe" x $out -oC:\\eRust-1.85.1 -y
+
+      - name: Link eRust toolchain
         shell: bash
         run: |
-          cd $GITHUB_WORKSPACE
-          ./mach bootstrap --application-choice=browser
+          rustup toolchain link eRust-1.85.1 C:/eRust-1.85.1
+          rustup default eRust-1.85.1
 
-      # Build Firefox
-      - name: Build Firefox
+      - name: Adjust Rust toolchains
         shell: bash
         run: |
-          cd $GITHUB_WORKSPACE
+          rustup install 1.85.1
+          rustup toolchain remove stable
+
+      - name: Bootstrap
+        shell: bash
+        run: ./mach --no-interactive bootstrap --application browser
+
+  build:
+    runs-on: windows-latest
+    needs: bootstrap   # 👈 ensures fresh runner after bootstrap
+    strategy:
+      matrix:
+        arch: [x86, x64]
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Install Git
+        run: choco install git --yes
+      - name: Install MozillaBuild
+        run: choco install mozillabuild --yes
+      - name: Install Rustup
+        run: choco install rustup.install --yes
+      - name: Install 7-Zip
+        run: choco install 7zip --yes
+
+      - name: Download and Extract eRust
+        shell: powershell
+        run: |
+          $url = "https://github.com/Eclipse-Community/eRust/releases/download/e1.85.1/eRust-1.85.1.7z"
+          $out = "$env:USERPROFILE\\Downloads\\eRust.7z"
+          Invoke-WebRequest -Uri $url -OutFile $out
+          & "C:\\Program Files\\7-Zip\\7z.exe" x $out -oC:\\eRust-1.85.1 -y
+
+      - name: Link eRust toolchain (override after bootstrap)
+        shell: bash
+        run: |
+          rustup toolchain link eRust-1.85.1 C:/eRust-1.85.1
+          rustup override set eRust-1.85.1
+
+      - name: Build and Package
+        shell: bash
+        run: |
+          if [ "${{ matrix.arch }}" = "x64" ]; then
+            export MOZCONFIG=$GITHUB_WORKSPACE/mozconfigs/mozconfig-win-x64
+          else
+            export MOZCONFIG=$GITHUB_WORKSPACE/mozconfigs/mozconfig-win-x86
+          fi
           ./mach build
-
-      # Package Firefox
-      - name: Package Firefox
-        shell: bash
-        run: |
-          cd $GITHUB_WORKSPACE
           ./mach package
 
-      # Upload packaged Firefox as artifact
-      - name: Upload Firefox artifact
+      - name: Upload r3dfox artifact
         uses: actions/upload-artifact@v4
         with:
-          name: firefox-${{ matrix.arch }}
-          path: |
-            ${{ github.workspace }}/obj-${{ matrix.arch }}/dist/firefox/*
+          name: r3dfox-${{ matrix.arch }}
+          path: ${{ github.workspace }}/obj-${{ matrix.arch }}/dist/firefox/*
