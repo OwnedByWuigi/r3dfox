@@ -1,9 +1,9 @@
 name: Build r3dfox (Windows)
 
 on:
-  push        # every commit, all branches
-  pull_request
-  workflow_dispatch
+  push:              # every commit, all branches
+  pull_request:
+  workflow_dispatch:
 
 jobs:
   bootstrap:
@@ -24,7 +24,7 @@ jobs:
       - name: Install 7-Zip
         run: choco install 7zip --yes
 
-      - name: Download and Extract eRust
+      - name: Download and extract eRust
         shell: powershell
         run: |
           $url = "https://github.com/Eclipse-Community/eRust/releases/download/e1.85.1/eRust-1.85.1.7z"
@@ -32,7 +32,7 @@ jobs:
           Invoke-WebRequest -Uri $url -OutFile $out
           & "C:\\Program Files\\7-Zip\\7z.exe" x $out -oC:\\eRust-1.85.1 -y
 
-      - name: Link eRust toolchain
+      - name: Link eRust toolchain and set default
         shell: bash
         run: |
           rustup toolchain link eRust-1.85.1 C:/eRust-1.85.1
@@ -50,7 +50,7 @@ jobs:
 
   build:
     runs-on: windows-latest
-    needs: bootstrap   # 👈 ensures fresh runner after bootstrap
+    needs: bootstrap   # fresh runner after bootstrap (clean restart)
     strategy:
       matrix:
         arch: [x86, x64]
@@ -61,14 +61,17 @@ jobs:
 
       - name: Install Git
         run: choco install git --yes
+
       - name: Install MozillaBuild
         run: choco install mozillabuild --yes
+
       - name: Install Rustup
         run: choco install rustup.install --yes
+
       - name: Install 7-Zip
         run: choco install 7zip --yes
 
-      - name: Download and Extract eRust
+      - name: Download and extract eRust
         shell: powershell
         run: |
           $url = "https://github.com/Eclipse-Community/eRust/releases/download/e1.85.1/eRust-1.85.1.7z"
@@ -76,13 +79,13 @@ jobs:
           Invoke-WebRequest -Uri $url -OutFile $out
           & "C:\\Program Files\\7-Zip\\7z.exe" x $out -oC:\\eRust-1.85.1 -y
 
-      - name: Link eRust toolchain (override after bootstrap)
+      - name: Link and override eRust (after bootstrap, before build)
         shell: bash
         run: |
           rustup toolchain link eRust-1.85.1 C:/eRust-1.85.1
           rustup override set eRust-1.85.1
 
-      - name: Build and Package
+      - name: Build and package
         shell: bash
         run: |
           if [ "${{ matrix.arch }}" = "x64" ]; then
