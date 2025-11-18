@@ -1,0 +1,71 @@
+name: Build Firefox (Windows)
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        arch: [x86, x64]   # Build both 32-bit and 64-bit
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      # Install Visual Studio Build Tools (MSVC)
+      - name: Install Visual Studio Build Tools
+        run: |
+          choco install visualstudio2022buildtools --yes --install-arguments "--add Microsoft.VisualStudio.Workload.VCTools"
+
+      # Install MozillaBuild (provides Python, Mercurial, GNU make, etc.)
+      - name: Install MozillaBuild
+        run: |
+          choco install mozillabuild --yes
+
+      # Install additional dependencies
+      - name: Install dependencies
+        run: |
+          choco install nasm yasm git python3 --yes
+
+      # Configure environment for the selected architecture
+      - name: Set environment
+        run: |
+          echo "MOZILLABUILD=C:\\mozilla-build" >> $env:GITHUB_ENV
+          if ("${{ matrix.arch }}" -eq "x86") {
+            echo "VSCMD_ARG_TGT_ARCH=x86" >> $env:GITHUB_ENV
+          } else {
+            echo "VSCMD_ARG_TGT_ARCH=x64" >> $env:GITHUB_ENV
+          }
+
+      # Bootstrap Firefox build system
+      - name: Bootstrap Firefox build
+        shell: bash
+        run: |
+          cd $GITHUB_WORKSPACE
+          ./mach bootstrap --application-choice=browser
+
+      # Build Firefox
+      - name: Build Firefox
+        shell: bash
+        run: |
+          cd $GITHUB_WORKSPACE
+          ./mach build
+
+      # Package Firefox
+      - name: Package Firefox
+        shell: bash
+        run: |
+          cd $GITHUB_WORKSPACE
+          ./mach package
+
+      # Upload packaged Firefox as artifact
+      - name: Upload Firefox artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: firefox-${{ matrix.arch }}
+          path: |
+            ${{ github.workspace }}/obj-${{ matrix.arch }}/dist/firefox/*
